@@ -18,11 +18,46 @@ python start.py
 ## 使用
 
 - **手动测试**：复制三条挑战，分别发送给同一个待测模型，再粘贴每次完整输出。
-- **API 自动测试**：填写 Base URL、API Key 和模型名。程序会自动尝试 OpenAI Chat Completions 与 Anthropic Messages 格式，以三份有效回答为目标完成归因。
+- **API 自动测试**：填写 Base URL、API Key 和模型名，可显式选择 OpenAI Chat Completions、OpenAI Responses 或 Anthropic Messages；自动模式会依次尝试适用协议，以三份有效回答为目标完成归因。Codex 兼容中转接口应选择 Responses。
 - **指纹库管理**：可以新建指纹库，或通过 API 为现有指纹库添加模型指纹。
 
 API Key 只用于当前页面发起请求，不写入磁盘。
-自动采集会在对应的 `*_reference.jsonl` 中保存实际 user prompt、base prompt、system prompt 和 user prefix；拟合后的 `*_bank.json` 与 `unified_bank.json` 只保存统计指纹和校准参数。
+自动采集会在对应的 `*_reference.jsonl` 中保存实际 user prompt、base prompt、system prompt、user prefix、原始和归一化 usage 及返回模型名；拟合后的 `*_bank.json` 与 `unified_bank.json` 仍只保存模型身份的统计指纹和校准参数。
+
+## 推理档位估计
+
+模型身份归因之外，页面可使用 API 返回的 token 用量，独立估计指定模型的 `low / medium / high / xhigh / max` 档位。Flask 页面和 GitHub Pages 均支持手动填写每份回答的 usage；API 自动测试会保留服务端实际返回的用量。
+
+- 选择准确的**推理档位参考模型**。API 模式默认精确匹配接口模型名；使用别名时需手动选择，不会用数字指纹的候选模型代替。
+- 至少三份数字有效的回答必须具有独立的 `reasoning_tokens`。未报告该字段时保留未知，不能把它当作 0；明确报告 0 才是有效的零推理用量。Anthropic Messages 未提供独立推理计数时，只展示已知用量。
+- 每份回答的特征为 `log1p(100 × reasoning_tokens / 实际解析数字数)`，查询使用三份或更多回答的特征中位数。按模型与参考档位的实测最小值、中位数、最大值比较，归一化避免数字序列长度直接主导消耗。
+- 只落入一个档位区间时给出经验估计；区间重叠时保留多个候选；缺少参考或用量、五档参考不全、观测值超出所有区间时不强行判定。不输出未经校准的档位概率，也不改变原有模型身份评分。
+
+共享参考库 `static/data/effort_reference.json` 来自 2026 年 10 月 31 日的 120 份有效 Codex 实测回答：8 个模型、5 档、每档 3 份。参考仅覆盖空系统提示、无历史和工具的独立短整数挑战；不适用于长任务上下文、其他提示词或任意模型。参考标签是请求的档位配置，不是对服务端真实性的独立验证。当前小样本区间有明显重叠，显示多个候选是正常结果。
+
+API 参数：
+
+- `/api/test/probe`、`/api/test/auto` 接受 `api_format`（`auto/openai/responses/anthropic`）和可选 `reasoning_effort`。请求档位只是配置，不作为估计特征；Anthropic 不接受此设置。指纹库采集保留原有协议自动识别流程。
+- `/api/test/probe` 返回 `text`、`usage`、`raw_usage`、`response_model`、`api_format` 和数字有效性；Responses 流必须有正常的 `response.completed`，失败、截断和断流不进入评分。
+- `/api/analyze` 接受 `effort_model` 和 `outputs[].usage`，返回独立的 `effort` 结果；`/api/test/auto` 同时返回实际采用的 `outputs`。归一化 usage 形如 `{"input_tokens":180,"output_tokens":1200,"reasoning_tokens":300,"total_tokens":1380}`，未知字段为 `null`，OpenAI 的输出计数已经包含推理，不能再次相加。
+- Python `request_completion()` 现在返回包含上述文本与用量的对象，不再仅返回字符串。
+
+可以从同类实验的原始记录重建参考库，不需要修改模型身份指纹库：
+
+```powershell
+python build_effort_reference.py path/to/records.jsonl --manifest path/to/manifest.json
+```
+
+导入器核验 manifest 中的干净请求条件与逐条挑战，只采用正常完成、数字有效且具有推理计数的样本；重复的模型/档位/挑战记录会报错。参考 JSON 仅保留模型档位区间、样本数、来源与原始记录摘要，不重复分发逐次实验明细，不保存凭据。
+
+长整数探针可能持续输出至服务端 token 上限，低档位也不例外；截断或断流不代表没有消耗。页面 token 合计仅覆盖进入分析的数字有效回答、且所有回答均已报告的对应字段，不是整轮请求的账单。
+
+验证命令：
+
+```powershell
+python -m unittest discover -s tests -p "test_*.py" -v
+node --test tests/*.test.mjs
+```
 
 ## 指纹方法
 
@@ -57,6 +92,8 @@ P(模型家族) = Σ P(该家族中的具体模型)
 ```text
 app.py              Web 接口
 fingerprint.py      指纹提取与归因
+effort.py           token 用量归一化与独立档位估计
+build_effort_reference.py  从实验原始记录重建档位参考库
 bank_builder.py     指纹库构建与概率校准
 challenge_suite.py  自动建库挑战
 enrollment.py       API 调用与指纹采集

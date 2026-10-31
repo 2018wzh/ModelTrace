@@ -7,6 +7,7 @@
   <title>ModelTrace</title>
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="./repository-link.css">
+  <link rel="stylesheet" href="./effort.css">
 </head>
 <body>
   <header class="topbar">
@@ -30,6 +31,10 @@
         <div class="panel-toolbar">
           <strong>三次挑战</strong>
           <button id="regenerate" class="button secondary" type="button" disabled>重新生成</button>
+        </div>
+        <div class="form-grid effort-settings">
+          <label><span>推理档位参考模型（可选，精确匹配）</span><select id="manual-effort-model" disabled><option value="">不选择参考模型</option></select><small>模型列表来自共享参考库；不选择或不填写 usage 时，仍可进行模型归因。</small></label>
+          <p class="effort-note" data-effort-reference-note>正在加载推理档位参考库……</p>
         </div>
         <div id="challenge-list" class="challenge-list" aria-live="polite"></div>
         <div class="action-row"><button id="analyze" class="button primary" type="button" disabled>计算归因概率</button></div>

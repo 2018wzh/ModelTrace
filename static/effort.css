@@ -1,0 +1,12 @@
+.effort-settings { border: 1px solid var(--line); border-top: 0; background: var(--surface); }
+.effort-note { margin: 8px 0; color: var(--muted); font-size: 11px; font-weight: 400; line-height: 1.6; overflow-wrap: anywhere; }
+.effort-settings .effort-note { margin: 0; }
+.usage-inputs { margin: 0 14px 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
+.usage-inputs summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.usage-inputs .form-grid { padding: 6px 0 0; }
+.effort-result { padding: 15px 17px; border-top: 1px solid var(--line); }
+.effort-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.effort-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin: 14px 0; }
+.effort-metrics > div { display: flex; flex-direction: column; gap: 5px; }
+.effort-metrics span { color: var(--muted); font-size: 10px; }
+.effort-metrics strong { font-size: 16px; overflow-wrap: anywhere; }

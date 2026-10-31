@@ -8,9 +8,13 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
-from enrollment import bank_summary, enroll_automatic, request_completion, test_automatic
+from enrollment import (
+    bank_summary, enroll_automatic, request_completion, test_automatic,
+    validate_completion_options,
+)
 from fingerprint import analyze_global_outputs, generate_challenges, load_bank, parse_numbers
 from bank_builder import build_bank, read_rows
+from effort import analyze_effort, normalize_usage
 
 
 app = Flask(__name__)
@@ -121,6 +125,13 @@ def requested_temperature(payload: dict) -> float | None:
     return None if value in (None, "") else float(value)
 
 
+def requested_completion_options(payload: dict) -> dict:
+    api_format, reasoning_effort = validate_completion_options(
+        payload.get("api_format", "auto"), payload.get("reasoning_effort")
+    )
+    return {"api_format": api_format, "reasoning_effort": reasoning_effort}
+
+
 def summarized_bank(bank_id: str) -> dict:
     config = BANK_CONFIGS[bank_id]
     bank = banks.get(bank_id)
@@ -176,10 +187,16 @@ def challenges():
 def analyze():
     try:
         payload = request.get_json()
-        result = analyze_global_outputs(payload["outputs"], unified_bank)
+        outputs = [
+            {**output, "usage": normalize_usage(output.get("usage"), "normalized")}
+            for output in payload["outputs"]
+        ]
+        result = analyze_global_outputs(outputs, unified_bank)
+        result["effort"] = analyze_effort(outputs, payload.get("effort_model"))
+        result["outputs"] = outputs
         result["bank"] = summarized_unified_bank()
         return jsonify(result)
-    except ValueError as error:
+    except (ValueError, KeyError, TypeError, AttributeError) as error:
         return jsonify({"error": str(error)}), 400
 
 
@@ -193,38 +210,44 @@ def automatic_test():
             api_model=payload["api_model"].strip(),
             temperature=requested_temperature(payload),
             bank=unified_bank,
-            api_format="auto",
+            effort_model=payload.get("effort_model") or payload["api_model"].strip(),
+            **requested_completion_options(payload),
         )
         result["bank"] = summarized_unified_bank()
         return jsonify(result)
-    except ValueError as error:
+    except (ValueError, KeyError, TypeError, AttributeError) as error:
         return jsonify({"error": str(error)}), 400
+    except RuntimeError as error:
+        return jsonify({"error": str(error)}), 502
 
 
 @app.post("/api/test/probe")
 def automatic_test_probe():
     payload = request.get_json()
     try:
-        text = request_completion(
+        expected_count = int(payload["expected_count"])
+        completion = request_completion(
             base_url=payload["base_url"].strip(),
             api_key=payload["api_key"],
             api_model=payload["api_model"].strip(),
             prompt=payload["prompt"],
             temperature=requested_temperature(payload),
-            api_format="auto",
+            **requested_completion_options(payload),
         )
-        expected_count = int(payload["expected_count"])
-        parsed_numbers = len(parse_numbers(text))
+        parsed_numbers = len(parse_numbers(completion["text"]))
         minimum_numbers = max(80, math.ceil(expected_count * 0.55))
         return jsonify(
             {
-                "text": text,
+                **completion,
+                "expected_count": expected_count,
                 "parsed_numbers": parsed_numbers,
                 "minimum_numbers": minimum_numbers,
                 "accepted": parsed_numbers >= minimum_numbers,
             }
         )
-    except Exception as error:
+    except (ValueError, KeyError, TypeError, AttributeError) as error:
+        return jsonify({"error": str(error)}), 400
+    except RuntimeError as error:
         return jsonify({"error": str(error)}), 502
 
 

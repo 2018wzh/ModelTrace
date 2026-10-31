@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import json
 import math
 import os
@@ -16,6 +17,7 @@ from pathlib import Path
 from fingerprint import analyze_global_outputs, generate_challenges, parse_numbers
 from bank_builder import build_bank, read_rows
 from challenge_suite import fingerprint_suite
+from effort import analyze_effort, normalize_usage
 
 
 PROJECT = Path(__file__).resolve().parent
@@ -156,17 +158,16 @@ def enroll_manual(
 
 def completion_url(base_url: str, api_format: str = "openai") -> str:
     normalized = base_url.rstrip("/")
-    if api_format == "anthropic":
-        if normalized.endswith("/messages"):
-            return normalized
-        if normalized.endswith("/v1"):
-            return normalized + "/messages"
-        return normalized + "/v1/messages"
-    if normalized.endswith("/chat/completions"):
+    endpoint = {
+        "openai": "/chat/completions",
+        "anthropic": "/messages",
+        "responses": "/responses",
+    }[api_format]
+    if normalized.endswith(endpoint):
         return normalized
     if normalized.endswith("/v1"):
-        return normalized + "/chat/completions"
-    return normalized + "/v1/chat/completions"
+        return normalized + endpoint
+    return normalized + "/v1" + endpoint
 
 
 def _looks_like_waf_block(text: str) -> bool:
@@ -203,72 +204,74 @@ def _compact_upstream_error(details: str, fallback: str) -> str:
     return text[:500]
 
 
-def _request_completion(
-    base_url: str,
-    api_key: str,
-    api_model: str,
-    prompt: str,
-    temperature: float | None,
-    api_format: str,
-    system_prompt: str = "",
-) -> str:
-    if api_format == "anthropic":
-        body_data = {
-            "model": api_model,
-            "max_tokens": 4096,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-        if system_prompt:
-            body_data["system"] = system_prompt
-        headers = {
-            "x-api-key": api_key,
-            "Authorization": f"Bearer {api_key}",
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": upstream_user_agent(),
-        }
-    else:
-        body_data = {
-            "model": api_model,
-            "messages": [
-                *([{"role": "system", "content": system_prompt}] if system_prompt else []),
-                {"role": "user", "content": prompt},
-            ],
-        }
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": upstream_user_agent(),
-        }
-    if temperature is not None:
-        body_data["temperature"] = temperature
-    body = json.dumps(body_data).encode("utf-8")
-    url = completion_url(base_url, api_format)
-    payload = None
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        request = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=240) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-            break
-        except urllib.error.HTTPError as error:
-            details = error.read().decode("utf-8", errors="replace").strip()
-            message = _compact_upstream_error(details, error.reason)
-            retried = f"（已自动重试 {attempt - 1} 次）" if attempt > 1 else ""
-            if attempt < MAX_ATTEMPTS and error.code in RETRYABLE_STATUS:
-                time.sleep(RETRY_BASE_DELAY * attempt + random.uniform(0, 0.5))
-                continue
-            raise RuntimeError(f"HTTP {error.code}: {message}{retried}") from error
-        except urllib.error.URLError as error:
-            reason = getattr(error, "reason", str(error))
-            if attempt < MAX_ATTEMPTS:
-                time.sleep(RETRY_BASE_DELAY * attempt + random.uniform(0, 0.5))
-                continue
-            retried = f"（已自动重试 {attempt - 1} 次）" if attempt > 1 else ""
-            raise RuntimeError(f"无法连接接口：{reason}{retried}") from error
-    if api_format == "anthropic":
+def validate_completion_options(
+    api_format: str = "auto", reasoning_effort: str | None = None
+) -> tuple[str, str | None]:
+    if api_format is not None and not isinstance(api_format, str):
+        raise ValueError("接口格式必须是字符串")
+    if reasoning_effort is not None and not isinstance(reasoning_effort, str):
+        raise ValueError("请求推理强度必须是字符串")
+    api_format = api_format or "auto"
+    reasoning_effort = reasoning_effort or None
+    if api_format not in {"auto", "openai", "responses", "anthropic"}:
+        raise ValueError("接口格式必须是 auto、openai、responses 或 anthropic")
+    if reasoning_effort not in {None, "low", "medium", "high", "xhigh", "max"}:
+        raise ValueError("请求推理强度必须是 low、medium、high、xhigh 或 max")
+    if api_format == "anthropic" and reasoning_effort is not None:
+        raise ValueError("Anthropic 接口不支持此 reasoning_effort 参数")
+    return api_format, reasoning_effort
+
+
+def _completed_response(payload: dict) -> dict:
+    if payload.get("status") != "completed":
+        raise RuntimeError("Responses 回答未正常完成，本次回答不计入")
+    return payload
+
+
+def _read_responses_stream(response) -> dict:
+    event = ""
+    data = []
+    completed = None
+
+    def consume() -> None:
+        nonlocal completed
+        if not data:
+            return
+        if "\n".join(data).strip() == "[DONE]":
+            return
+        payload = json.loads("\n".join(data))
+        kind = payload.get("type") or event
+        if kind in {"error", "response.failed", "response.incomplete"}:
+            raise RuntimeError("Responses 回答失败或被截断，本次回答不计入")
+        if kind == "response.completed":
+            completed = _completed_response(payload["response"])
+
+    for raw_line in response:
+        line = raw_line.decode("utf-8").rstrip("\r\n")
+        if not line:
+            consume()
+            event, data = "", []
+        elif line.startswith("event:"):
+            event = line[6:].strip()
+        elif line.startswith("data:"):
+            data.append(line[5:].lstrip(" "))
+    consume()
+    if completed is None:
+        raise RuntimeError("Responses 流缺少 response.completed，本次回答不计入")
+    return completed
+
+
+def _completion_result(payload: dict, api_format: str) -> dict:
+    if api_format == "responses":
+        _completed_response(payload)
+        content = "".join(
+            part.get("text", "")
+            for item in payload.get("output", [])
+            if item.get("type") == "message"
+            for part in item.get("content", [])
+            if part.get("type") == "output_text"
+        )
+    elif api_format == "anthropic":
         content = "".join(
             block.get("text", "")
             for block in payload["content"]
@@ -286,7 +289,93 @@ def _request_completion(
             content = "".join(part.get("text", "") for part in content)
         if choice.get("finish_reason") in {"length", "content_filter"}:
             raise RuntimeError(f"回答未正常完成（{choice['finish_reason']}），本次回答不计入")
-    return str(content)
+    return {
+        "text": str(content or ""),
+        "usage": normalize_usage(payload.get("usage"), api_format),
+        "response_model": payload.get("model"),
+        "api_format": api_format,
+        "raw_usage": payload.get("usage"),
+    }
+
+
+def _request_completion(
+    base_url: str,
+    api_key: str,
+    api_model: str,
+    prompt: str,
+    temperature: float | None,
+    api_format: str,
+    system_prompt: str = "",
+    reasoning_effort: str | None = None,
+) -> dict:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": upstream_user_agent(),
+    }
+    if api_format == "anthropic":
+        body_data = {
+            "model": api_model,
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if system_prompt:
+            body_data["system"] = system_prompt
+        headers.update({"x-api-key": api_key, "anthropic-version": "2023-06-01"})
+    elif api_format == "responses":
+        body_data = {
+            "model": api_model,
+            "input": [{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
+            "instructions": system_prompt,
+            "stream": True,
+            "store": False,
+        }
+        headers["Accept"] = "text/event-stream, application/json"
+        if reasoning_effort is not None:
+            body_data["reasoning"] = {"effort": reasoning_effort}
+    else:
+        body_data = {
+            "model": api_model,
+            "messages": [
+                *([{"role": "system", "content": system_prompt}] if system_prompt else []),
+                {"role": "user", "content": prompt},
+            ],
+        }
+        if reasoning_effort is not None:
+            body_data["reasoning_effort"] = reasoning_effort
+    if temperature is not None:
+        body_data["temperature"] = temperature
+    body = json.dumps(body_data).encode("utf-8")
+    url = completion_url(base_url, api_format)
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=240) as response:
+                if api_format == "responses" and "text/event-stream" in response.headers.get("Content-Type", ""):
+                    payload = _read_responses_stream(response)
+                else:
+                    payload = json.loads(response.read().decode("utf-8"))
+            return _completion_result(payload, api_format)
+        except urllib.error.HTTPError as error:
+            details = error.read().decode("utf-8", errors="replace").strip()
+            message = _compact_upstream_error(details, error.reason)
+            retried = f"（已自动重试 {attempt - 1} 次）" if attempt > 1 else ""
+            if attempt < MAX_ATTEMPTS and error.code in RETRYABLE_STATUS:
+                time.sleep(RETRY_BASE_DELAY * attempt + random.uniform(0, 0.5))
+                continue
+            raise RuntimeError(f"HTTP {error.code}: {message}{retried}") from error
+        except urllib.error.URLError as error:
+            reason = getattr(error, "reason", str(error))
+            if attempt < MAX_ATTEMPTS:
+                time.sleep(RETRY_BASE_DELAY * attempt + random.uniform(0, 0.5))
+                continue
+            retried = f"（已自动重试 {attempt - 1} 次）" if attempt > 1 else ""
+            raise RuntimeError(f"无法连接接口：{reason}{retried}") from error
+        except (http.client.HTTPException, TimeoutError) as error:
+            raise RuntimeError("上游连接中断或超时，本次回答不计入") from error
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError) as error:
+            raise RuntimeError(f"上游返回格式或 usage 无效：{error}") from error
 
 
 def request_completion(
@@ -297,20 +386,24 @@ def request_completion(
     temperature: float | None,
     api_format: str = "auto",
     system_prompt: str = "",
-) -> str:
-    if api_format != "auto":
-        return _request_completion(
-            base_url, api_key, api_model, prompt, temperature, api_format, system_prompt
-        )
-    formats = ("openai", "anthropic")
+    reasoning_effort: str | None = None,
+) -> dict:
+    api_format, reasoning_effort = validate_completion_options(api_format, reasoning_effort)
+    formats = (
+        ("openai", "responses") if reasoning_effort else ("openai", "anthropic", "responses")
+    ) if api_format == "auto" else (api_format,)
     errors = []
     for candidate in formats:
         try:
             return _request_completion(
-                base_url, api_key, api_model, prompt, temperature, candidate, system_prompt
+                base_url, api_key, api_model, prompt, temperature, candidate,
+                system_prompt, reasoning_effort,
             )
         except RuntimeError as error:
-            errors.append(f"{candidate}: {error}")
+            message = str(error).replace(api_key, "[redacted]") if api_key else str(error)
+            if api_format != "auto":
+                raise RuntimeError(message) from error
+            errors.append(f"{candidate}: {message}")
     raise RuntimeError("接口格式自动探测失败；" + "；".join(errors))
 
 
@@ -320,8 +413,11 @@ def test_automatic(
     api_model: str,
     temperature: float | None,
     bank: dict,
-    api_format: str = "openai",
+    api_format: str = "auto",
+    reasoning_effort: str | None = None,
+    effort_model: str | None = None,
 ) -> dict:
+    api_format, reasoning_effort = validate_completion_options(api_format, reasoning_effort)
     target_count = 3
     max_attempts = 6
     challenges = generate_challenges(max_attempts)
@@ -329,20 +425,21 @@ def test_automatic(
     errors = []
     for challenge in challenges:
         try:
-            text = request_completion(
+            completion = request_completion(
                 base_url,
                 api_key,
                 api_model,
                 challenge["prompt"],
                 temperature,
                 api_format,
+                reasoning_effort=reasoning_effort,
             )
             minimum = max(80, math.ceil(challenge["expected_count"] * 0.55))
-            parsed_count = len(parse_numbers(text))
+            parsed_count = len(parse_numbers(completion["text"]))
             if parsed_count >= minimum:
                 outputs.append(
                     {
-                        "text": text,
+                        **completion,
                         "expected_count": challenge["expected_count"],
                     }
                 )
@@ -352,7 +449,11 @@ def test_automatic(
             errors.append(str(error))
         if len(outputs) == target_count:
             break
+    if not outputs:
+        raise RuntimeError("没有获得可用回答；" + "；".join(errors))
     result = analyze_global_outputs(outputs, bank)
+    result["effort"] = analyze_effort(outputs, effort_model or api_model)
+    result["outputs"] = outputs
     result["api_test"] = {
         "requested": target_count,
         "attempted": len(outputs) + len(errors),
@@ -392,7 +493,7 @@ def enroll_automatic(
         system_prompt = task["system"]
         for _ in range(2):
             try:
-                text = request_completion(
+                completion = request_completion(
                     base_url,
                     api_key,
                     api_model,
@@ -403,7 +504,7 @@ def enroll_automatic(
                 )
                 row = make_row(
                     model_label=model_label,
-                    text=text,
+                    text=completion["text"],
                     condition=task["condition"],
                     challenge_id=task["challenge_id"],
                     expected_count=task["expected_count"],
@@ -416,6 +517,13 @@ def enroll_automatic(
                     system_prompt=system_prompt,
                     user_prefix=task["user_prefix"],
                 )
+                row.update({
+                    "usage": completion["usage"],
+                    "raw_usage": completion["raw_usage"],
+                    "response_model": completion["response_model"],
+                    "api_format": completion["api_format"],
+                    "api_model": api_model,
+                })
                 if row["strict_valid"]:
                     return row, task_errors
                 task_errors.append(
@@ -434,7 +542,7 @@ def enroll_automatic(
                 rows.append(row)
     accepted = [row for row in rows if row["strict_valid"]]
     if not accepted:
-        raise ValueError("没有获得可用回答，指纹库未修改")
+        raise RuntimeError("没有获得可用回答，指纹库未修改；" + "；".join(errors))
     append_rows(accepted, data_file)
     bank = rebuild_bank(data_file, bank_file)
     return {

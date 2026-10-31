@@ -6,6 +6,7 @@
   <title>ModelTrace</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='repository-link.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='effort.css') }}">
 </head>
 <body>
   <header class="topbar">
@@ -37,6 +38,10 @@
 
         <section id="test-manual" class="mode-panel active">
           <div class="panel-toolbar"><strong>三次挑战</strong><button id="regenerate" class="button secondary" type="button">重新生成</button></div>
+          <div class="form-grid effort-settings">
+            <label><span>推理档位参考模型（可选，精确匹配）</span><select id="manual-effort-model" disabled><option value="">不选择参考模型</option></select><small>模型列表来自共享参考库；不选择或不填写 usage 时，仍可进行模型归因。</small></label>
+            <p class="effort-note" data-effort-reference-note>正在加载推理档位参考库……</p>
+          </div>
           <div id="challenge-list" class="challenge-list" aria-live="polite"></div>
           <div class="action-row"><button id="analyze" class="button primary" type="button">计算归因概率</button></div>
         </section>
@@ -48,6 +53,9 @@
               <label><span>接口模型名</span><input id="test-api-model" required placeholder="模型名"></label>
               <label><span>API Key</span><input id="test-api-key" type="password" required autocomplete="off"></label>
               <label><span>温度（可选）</span><input id="test-temperature" type="number" min="0" max="2" step="0.1" placeholder="接口默认"></label>
+              <label><span>接口协议</span><select id="test-api-format"><option value="auto">自动识别</option><option value="openai">OpenAI Chat Completions</option><option value="responses">OpenAI Responses</option><option value="anthropic">Anthropic Messages</option></select></label>
+              <label><span>请求的 reasoning effort（可选）</span><select id="test-reasoning-effort"><option value="">接口默认</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option><option value="max">max</option></select><small>仅作为请求配置，不作为估计证据。Anthropic 不支持此设置。</small></label>
+              <label><span>推理档位参考模型（可选）</span><select id="test-effort-model" disabled><option value="">使用接口模型名（精确匹配）</option></select><small>接口别名需手动选择参考模型；不会使用归因结果代替。</small></label>
             </div>
             <div class="form-footer"><button class="button primary" type="submit">开始测试</button></div>
           </form>
@@ -101,6 +109,6 @@
 
   <datalist id="model-options">{% for model in bank.models %}<option value="{{ model.id }}">{% endfor %}</datalist>
   <script>window.BANK_SUMMARIES = {{ banks | tojson }}; window.UNIFIED_SUMMARY = {{ unified | tojson }}; window.DEFAULT_BANK_ID = {{ default_bank_id | tojson }};</script>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

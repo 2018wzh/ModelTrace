@@ -1,3 +1,5 @@
+import { escapeHtml, loadEffortReference, populateEffortModels, readManualOutputs, renderEffortResult, renderUsageInputs } from "./effort-ui.js";
+
 const state = {
   challenges: [],
   bankId: window.DEFAULT_BANK_ID,
@@ -7,11 +9,6 @@ const state = {
 
 const byId = (id) => document.getElementById(id);
 
-function escapeHtml(value) {
-  return String(value).replace(/[&<>'"]/g, (character) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
-  })[character]);
-}
 
 function percent(value) {
   return `${(value * 100).toFixed(1)}%`;
@@ -62,6 +59,7 @@ function renderChallenges() {
         <div><label>发送给待测模型</label><pre>${escapeHtml(challenge.prompt)}</pre></div>
         <div><label for="output-${index}">粘贴完整输出</label><textarea id="output-${index}" spellcheck="false" placeholder="保留文字、标点、代码块和完整数字序列"></textarea></div>
       </div>
+      ${renderUsageInputs(index)}
     </article>
   `).join("");
   document.querySelectorAll("[data-copy]").forEach((button) => {
@@ -97,6 +95,7 @@ function renderResult(payload) {
     <div class="diagnostics">${diagnostics}</div>
     <div class="table-wrap"><table><thead><tr><th>排序</th><th>候选模型</th><th>家族</th><th>归因概率</th><th>分布相似度</th></tr></thead><tbody>${rows}</tbody></table></div>
     ${apiNote ? `<div class="result-note">${apiNote}</div>` : ""}
+    ${renderEffortResult(payload.effort)}
     <div class="result-guidance" role="note" aria-label="结果说明">
       <p>本工具仅对指纹库内的模型进行归因；若待测模型不在指纹库中，得到任何结果都有可能。</p>
       <p>Claude Code 的系统提示词会影响模型偏好，测试结果存在较大偏差，建议不要在 Claude Code 中测试。</p>
@@ -110,20 +109,23 @@ async function analyzeManual() {
   const button = byId("analyze");
   button.disabled = true;
   setMessage(byId("test-message"), "正在计算……", "working");
-  const outputs = state.challenges.map((challenge, index) => ({
-    text: byId(`output-${index}`).value,
-    expected_count: challenge.expected_count,
-  }));
-  const response = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ outputs }) });
-  const payload = await response.json();
-  if (response.ok) {
+  byId("result").hidden = true;
+  try {
+    const outputs = readManualOutputs(state.challenges);
+    const response = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outputs, effort_model: byId("manual-effort-model").value || null }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "无法完成归因。");
     setMessage(byId("test-message"), "");
     renderResult(payload);
-  } else {
-    setMessage(byId("test-message"), payload.error || "无法完成归因。", "error");
-    byId("result").hidden = true;
+  } catch (error) {
+    setMessage(byId("test-message"), error.message || "无法完成归因。", "error");
+  } finally {
+    button.disabled = false;
   }
-  button.disabled = false;
 }
 
 function renderApiProgress(states, status) {
@@ -160,6 +162,8 @@ async function testViaApi(event) {
     api_key: byId("test-api-key").value,
     api_model: byId("test-api-model").value,
     temperature: optionalNumber("test-temperature"),
+    api_format: byId("test-api-format").value,
+    reasoning_effort: byId("test-reasoning-effort").value || null,
   };
   renderApiProgress(states, "已生成独立挑战，准备调用模型");
 
@@ -179,7 +183,13 @@ async function testViaApi(event) {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "接口请求失败");
       if (payload.accepted) {
-        outputs.push({ text: payload.text, expected_count: challenges[index].expected_count });
+        outputs.push({
+          text: payload.text,
+          expected_count: challenges[index].expected_count,
+          usage: payload.usage ?? null,
+          response_model: payload.response_model,
+          api_format: payload.api_format,
+        });
         states[index] = "done";
       } else {
         errors.push(`尝试 ${index + 1}: 有效数字 ${payload.parsed_numbers}/${payload.minimum_numbers}`);
@@ -207,7 +217,7 @@ async function testViaApi(event) {
   const analysisResponse = await fetch("/api/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ outputs }),
+    body: JSON.stringify({ outputs, effort_model: byId("test-effort-model").value || configuration.api_model }),
   });
   const result = await analysisResponse.json();
   if (analysisResponse.ok) {
@@ -324,6 +334,18 @@ async function createBank(event) {
   button.disabled = false;
 }
 
+async function initializeEffortModels() {
+  const note = document.querySelector("[data-effort-reference-note]");
+  try {
+    const reference = await loadEffortReference("/static/data/effort_reference.json");
+    populateEffortModels(byId("manual-effort-model"), reference);
+    populateEffortModels(byId("test-effort-model"), reference, "使用接口模型名（精确匹配）");
+    note.textContent = "推理档位使用实际 usage，与模型归因分别计算。至少需要三份含推理 token 的有效回答。";
+  } catch (error) {
+    note.textContent = `${error.message}；模型归因仍可使用。`;
+  }
+}
+
 document.querySelectorAll("[data-workspace]").forEach((button) => button.addEventListener("click", () => activateWorkspace(button.dataset.workspace)));
 document.querySelectorAll("[data-test-mode]").forEach((button) => button.addEventListener("click", () => activateMode("test", button.dataset.testMode)));
 byId("bank-select").addEventListener("change", (event) => selectBank(event.target.value));
@@ -336,3 +358,4 @@ byId("create-bank-form").addEventListener("submit", createBank);
 
 renderInventory();
 loadChallenges();
+initializeEffortModels();

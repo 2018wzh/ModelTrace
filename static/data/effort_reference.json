@@ -1,0 +1,346 @@
+{
+  "schema_version": 1,
+  "feature": "log1p_reasoning_tokens_per_100_numbers",
+  "minimum_outputs": 3,
+  "provenance": {
+    "source": "https://github.com/xqy2006/ModelTrace",
+    "source_commit": "6cd4a8ff0f3f4e49d6d6969dd2fbadfa1569fde2",
+    "model_bank_sha256": "f267d0513aa06981d024ec5394746fceddf44e4e8a75fa6bf8304255f4b32d6d",
+    "collected_at": "2026-10-31T07:18:31.205535+00:00",
+    "provider": "openai-codex",
+    "records_sha256": "a17c741ecc8bd17dc41d911afb31ae00e77ca31c4e4458c4b9e6e890704ce77c",
+    "conditions": "空系统提示；无历史和工具；独立短整数挑战；服务端报告的推理 token",
+    "labels": "请求中的推理档位标签；不构成对服务端模型或档位真实性的独立验证",
+    "scope": "仅用于同模型、同类独立整数挑战；经验区间未经概率校准"
+  },
+  "models": [
+    {
+      "id": "gpt-5.6-luna",
+      "reference_count": 15,
+      "profiles": [
+        {
+          "effort": "low",
+          "samples": 3,
+          "minimum": 3.3596034843633182,
+          "median": 3.5681576532946226,
+          "maximum": 3.857550058123216
+        },
+        {
+          "effort": "medium",
+          "samples": 3,
+          "minimum": 3.8484092266525547,
+          "median": 6.036259187324076,
+          "maximum": 6.3229123133964595
+        },
+        {
+          "effort": "high",
+          "samples": 3,
+          "minimum": 6.036259187324076,
+          "median": 6.079500174149168,
+          "maximum": 6.145384298244777
+        },
+        {
+          "effort": "xhigh",
+          "samples": 3,
+          "minimum": 6.158529737624839,
+          "median": 6.847158528398918,
+          "maximum": 7.355865009644712
+        },
+        {
+          "effort": "max",
+          "samples": 3,
+          "minimum": 6.765677820028583,
+          "median": 7.173207960174304,
+          "maximum": 7.2174478917213305
+        }
+      ]
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "reference_count": 15,
+      "profiles": [
+        {
+          "effort": "low",
+          "samples": 3,
+          "minimum": 3.194757515419312,
+          "median": 3.3087659372031863,
+          "maximum": 3.7427074123133255
+        },
+        {
+          "effort": "medium",
+          "samples": 3,
+          "minimum": 6.047500730274119,
+          "median": 6.930975980760941,
+          "maximum": 6.956210766819073
+        },
+        {
+          "effort": "high",
+          "samples": 3,
+          "minimum": 7.289494328512663,
+          "median": 7.322626461397841,
+          "maximum": 7.7772026513386825
+        },
+        {
+          "effort": "xhigh",
+          "samples": 3,
+          "minimum": 6.152481972268598,
+          "median": 6.680786854590514,
+          "maximum": 8.142050013893536
+        },
+        {
+          "effort": "max",
+          "samples": 3,
+          "minimum": 7.214832503036348,
+          "median": 7.9495977784468765,
+          "maximum": 8.272004030923714
+        }
+      ]
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "reference_count": 15,
+      "profiles": [
+        {
+          "effort": "low",
+          "samples": 3,
+          "minimum": 2.942653264406206,
+          "median": 3.723897403662141,
+          "maximum": 6.1012755106685495
+        },
+        {
+          "effort": "medium",
+          "samples": 3,
+          "minimum": 3.3369840109095006,
+          "median": 4.332724976077112,
+          "maximum": 5.577892340781595
+        },
+        {
+          "effort": "high",
+          "samples": 3,
+          "minimum": 5.696960881479479,
+          "median": 6.695514909204601,
+          "maximum": 6.724699918276733
+        },
+        {
+          "effort": "xhigh",
+          "samples": 3,
+          "minimum": 6.015704837088229,
+          "median": 6.181610145833596,
+          "maximum": 6.591690258885492
+        },
+        {
+          "effort": "max",
+          "samples": 3,
+          "minimum": 7.9495977784468765,
+          "median": 8.048885766307091,
+          "maximum": 8.938432331838602
+        }
+      ]
+    },
+    {
+      "id": "gpt-6-astra",
+      "reference_count": 15,
+      "profiles": [
+        {
+          "effort": "low",
+          "samples": 3,
+          "minimum": 2.1863585960623615,
+          "median": 2.448762769323586,
+          "maximum": 2.6274067123952833
+        },
+        {
+          "effort": "medium",
+          "samples": 3,
+          "minimum": 2.5241564120197015,
+          "median": 3.008488404898428,
+          "maximum": 4.068117084385215
+        },
+        {
+          "effort": "high",
+          "samples": 3,
+          "minimum": 4.017756332938929,
+          "median": 4.041770652964482,
+          "maximum": 5.677570833800471
+        },
+        {
+          "effort": "xhigh",
+          "samples": 3,
+          "minimum": 6.127075701204208,
+          "median": 6.138396442080621,
+          "maximum": 7.064141696785926
+        },
+        {
+          "effort": "max",
+          "samples": 3,
+          "minimum": 5.684644064408999,
+          "median": 6.70920545600224,
+          "maximum": 7.272169682295656
+        }
+      ]
+    },
+    {
+      "id": "gpt-6-luna",
+      "reference_count": 15,
+      "profiles": [
+        {
+          "effort": "low",
+          "samples": 3,
+          "minimum": 3.7738312582225046,
+          "median": 4.61512051684126,
+          "maximum": 5.894419580756461
+        },
+        {
+          "effort": "medium",
+          "samples": 3,
+          "minimum": 3.8761732911847537,
+          "median": 5.289643493403259,
+          "maximum": 5.879443481070409
+        },
+        {
+          "effort": "high",
+          "samples": 3,
+          "minimum": 4.833261960948053,
+          "median": 5.488485922700234,
+          "maximum": 5.49588768048151
+        },
+        {
+          "effort": "xhigh",
+          "samples": 3,
+          "minimum": 5.833466385114456,
+          "median": 5.874039264670827,
+          "maximum": 6.039885559345489
+        },
+        {
+          "effort": "max",
+          "samples": 3,
+          "minimum": 5.942976702100371,
+          "median": 5.948232023810119,
+          "maximum": 6.2538927184341535
+        }
+      ]
+    },
+    {
+      "id": "gpt-6-sol",
+      "reference_count": 15,
+      "profiles": [
+        {
+          "effort": "low",
+          "samples": 3,
+          "minimum": 0.0,
+          "median": 2.5241564120197015,
+          "maximum": 2.7848611315314105
+        },
+        {
+          "effort": "medium",
+          "samples": 3,
+          "minimum": 2.9879513204212618,
+          "median": 3.570812287186995,
+          "maximum": 3.9014589269483952
+        },
+        {
+          "effort": "high",
+          "samples": 3,
+          "minimum": 3.24337566923211,
+          "median": 3.3451512266164634,
+          "maximum": 5.786202090313051
+        },
+        {
+          "effort": "xhigh",
+          "samples": 3,
+          "minimum": 5.845266396166944,
+          "median": 6.031160071532707,
+          "maximum": 6.076359511856825
+        },
+        {
+          "effort": "max",
+          "samples": 3,
+          "minimum": 5.891121453141674,
+          "median": 6.313652029661739,
+          "maximum": 6.443589893127753
+        }
+      ]
+    },
+    {
+      "id": "gpt-6.1-sol",
+      "reference_count": 15,
+      "profiles": [
+        {
+          "effort": "low",
+          "samples": 3,
+          "minimum": 2.1516208205361953,
+          "median": 2.2091650177081372,
+          "maximum": 2.4996513877401028
+        },
+        {
+          "effort": "medium",
+          "samples": 3,
+          "minimum": 2.6274067123952833,
+          "median": 3.2551696495537374,
+          "maximum": 3.509281457787022
+        },
+        {
+          "effort": "high",
+          "samples": 3,
+          "minimum": 5.586728025479962,
+          "median": 5.811532231068264,
+          "maximum": 6.150401053871717
+        },
+        {
+          "effort": "xhigh",
+          "samples": 3,
+          "minimum": 5.435265172677825,
+          "median": 6.943457725695824,
+          "maximum": 7.035982086599399
+        },
+        {
+          "effort": "max",
+          "samples": 3,
+          "minimum": 6.3812501271942725,
+          "median": 6.8855373046499375,
+          "maximum": 7.457448892767686
+        }
+      ]
+    },
+    {
+      "id": "gpt-6.1-terra",
+      "reference_count": 15,
+      "profiles": [
+        {
+          "effort": "low",
+          "samples": 3,
+          "minimum": 0.0,
+          "median": 0.0,
+          "maximum": 0.0
+        },
+        {
+          "effort": "medium",
+          "samples": 3,
+          "minimum": 2.0911965049112795,
+          "median": 2.338488667481387,
+          "maximum": 2.480082468793088
+        },
+        {
+          "effort": "high",
+          "samples": 3,
+          "minimum": 2.2199300602618655,
+          "median": 2.338488667481387,
+          "maximum": 2.4690152824513656
+        },
+        {
+          "effort": "xhigh",
+          "samples": 3,
+          "minimum": 3.1889459568113994,
+          "median": 3.6057915740652335,
+          "maximum": 5.532091146335791
+        },
+        {
+          "effort": "max",
+          "samples": 3,
+          "minimum": 6.444073267476755,
+          "median": 8.028305345438632,
+          "maximum": 8.128889051398945
+        }
+      ]
+    }
+  ]
+}
